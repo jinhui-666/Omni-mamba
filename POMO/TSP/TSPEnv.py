@@ -18,7 +18,7 @@ class Step_State:
     current_node: torch.Tensor = None
     # shape: (batch, pomo)
     ninf_mask: torch.Tensor = None
-    # shape: (batch, pomo, node)
+    # shape: (batch, pomo, problem)
 
 
 class TSPEnv:
@@ -26,6 +26,7 @@ class TSPEnv:
 
         # Const @INIT
         ####################################
+        # print("env_params:{}".format(env_params))
         self.env_params = env_params
         self.problem_size = env_params['problem_size']
         self.pomo_size = env_params['pomo_size']
@@ -65,9 +66,16 @@ class TSPEnv:
             else:
                 raise NotImplementedError
 
+        # tensor([[0, 0, 0, 0],
+        #         [1, 1, 1, 1],
+        #         [2, 2, 2, 2]])
         self.BATCH_IDX = torch.arange(self.batch_size)[:, None].expand(self.batch_size, self.pomo_size)  # (batch_size, pomo_size)
+        # tensor([[0, 1, 2, 3],
+        #         [0, 1, 2, 3],
+        #         [0, 1, 2, 3]])
         self.POMO_IDX = torch.arange(self.pomo_size)[None, :].expand(self.batch_size, self.pomo_size)
 
+    # Reset the environment and return the initial state
     def reset(self):
         self.selected_count = 0
         self.current_node = None
@@ -89,6 +97,7 @@ class TSPEnv:
         done = False
         return self.step_state, reward, done
 
+    # Selected: the current index of the chosen city, updates the state by executing step() with each selection
     def step(self, selected):
         # selected.shape: (batch, pomo)
 
@@ -101,6 +110,10 @@ class TSPEnv:
         # UPDATE STEP STATE
         self.step_state.current_node = self.current_node
         # shape: (batch, pomo)
+        # print(self.current_node)
+        # print(self.current_node.max())  # 查看最大值
+        # print(self.problem_size)  # 确保 self.current_node 的值小于 self.problem_size
+        # print(self.step_state.ninf_mask.shape)
         self.step_state.ninf_mask[self.BATCH_IDX, self.POMO_IDX, self.current_node] = float('-inf')
         # shape: (batch, pomo, node)
 
@@ -113,13 +126,15 @@ class TSPEnv:
 
         return self.step_state, reward, done
 
+    # get travel distance of per-pomo solution(batch, pomo)
     def _get_travel_distance(self):
+        # shape: (batch, pomo, problem, 2)
         gathering_index = self.selected_node_list.unsqueeze(3).expand(self.batch_size, -1, self.problem_size, 2)
         # shape: (batch, pomo, problem, 2)
         seq_expanded = self.problems[:, None, :, :].expand(self.batch_size, self.pomo_size, self.problem_size, 2)
-
+        # shape: (batch, pomo, problem, 2),按照已选择的顺序排列的节点坐标
         ordered_seq = seq_expanded.gather(dim=2, index=gathering_index)
-        # shape: (batch, pomo, problem, 2)
+
 
         rolled_seq = ordered_seq.roll(dims=2, shifts=-1)
         segment_lengths = ((ordered_seq-rolled_seq)**2).sum(3).sqrt()
